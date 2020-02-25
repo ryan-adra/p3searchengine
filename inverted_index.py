@@ -211,6 +211,22 @@ def get_document_text(docID):
 	extracted_words = preprocess_tokens(extracted_words)
 	return extracted_words
 
+def get_tag_scores(query, docID)
+	lemmatized = [WordNetLemmatizer().lemmatize(token).lower() for token in query]
+	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + docID
+	with open(file_path, 'r' , encoding='utf8') as file:
+		html_page = BeautifulSoup(file, features='lxml')
+	meta_tags = html_page.findAll('meta')
+	title = html_page.findAll('title')
+	headers = html_page.findAll('h')
+	bolded = html_page.findAll('b')
+	score = 0
+	for w in lemmatized:
+		if any(w for w in (meta_tags,title,headers,bolded))
+			score+=0.1
+	return score
+
+
 def doc_id(scores):
 	return scores['score']
 
