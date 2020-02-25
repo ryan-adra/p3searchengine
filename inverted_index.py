@@ -211,7 +211,7 @@ def get_document_text(docID):
 	extracted_words = preprocess_tokens(extracted_words)
 	return extracted_words
 
-def get_tag_scores(query, docID)
+def get_tag_scores(query, docID):
 	lemmatized = [WordNetLemmatizer().lemmatize(token).lower() for token in query]
 	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + docID
 	with open(file_path, 'r' , encoding='utf8') as file:
@@ -222,7 +222,7 @@ def get_tag_scores(query, docID)
 	bolded = html_page.findAll('b')
 	score = 0
 	for w in lemmatized:
-		if any(w for w in (meta_tags,title,headers,bolded))
+		if any(w for w in (meta_tags,title,headers,bolded)):
 			score+=0.1
 	return score
 
@@ -241,7 +241,8 @@ def prompt_query():
 		word_union = union(user_query,text)
 		d_list = tfidf_document_list(word_union)
 		q_list = tfidf_query_list(word_union,q_dict)
-		scores.append({'docID': docid, 'score':calculate_cosine(normalize(q_list),normalize(d_list))})
+		tag_score = get_tag_scores(user_query,docid)
+		scores.append({'docID': docid, 'score':calculate_cosine(normalize(q_list),normalize(d_list))+tag_score})
 	scores = sorted(scores,key=doc_id,reverse=True)
 	scores_length = len(scores)
 	for i in range(0,scores_length):
