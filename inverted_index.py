@@ -4,6 +4,7 @@ import pymongo
 import re
 import math
 import multiprocessing as mp
+from collections import defaultdict
 from bs4 import BeautifulSoup
 from collections import defaultdict
 from nltk.corpus import wordnet
@@ -16,18 +17,6 @@ STOPWORDS = set(stopwords.words('english'))
 def isvalid(s):
     return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
 
-def translate_tag(tag):
-  if tag.startswith('J'):
-    return wordnet.ADJ
-  elif tag.startswith('V'):
-    return wordnet.VERB
-  elif tag.startswith('N'):
-    return wordnet.NOUN
-  elif tag.startswith('R'):
-    return wordnet.ADV
-  else:          
-    return None
-
 def preprocess_tokens(extracted_words):
 	tokenize_words = word_tokenize(extracted_words)
 	text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
@@ -36,7 +25,7 @@ def preprocess_tokens(extracted_words):
 
 def get_database():
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-	mydb = myclient["invertedIndexTest"]
+	mydb = myclient["invertedIndex"]
 	mycol = mydb["words"]
 	return mycol
 
@@ -46,12 +35,24 @@ def calculate_tf(num):
 def calculate_idf(posting):
 	return log(37497/len(posting['postingList']))
 
-def calculate_tfidf_document():
+def calculate(posting_dict):
+	tf = calculate_tf(posting_dict['doc']['occurrences'])
 	mycol = get_database()
-	for document in mycol.find():
-		for post in document['postingList']:
-			tf = calculate_tf(post['occurrences'])
-			mycol.update_one({"word": document['word'], "postingList.docID": post['docID']}, {'$set':{'postingList.$.tf_idf':tf}})
+	mycol.update_one({"word": posting_dict['word'], "postingList.docID": posting_dict['doc']['docID']}, {'$set':{'postingList.$.tf_idf':tf}})
+
+def calculate_tfidf_document(query):
+	mycol = get_database()
+	for word in query:
+		if 'tf_idf' not in mycol.find_one({'word':word})['postingList'][0].keys():
+			alist = [{'word':word,'doc':d} for d in mycol.find_one({'word':word})['postingList']]
+			with mp.Pool() as pool:
+				pool.map(calculate,alist)
+				pool.close()
+			'''for posting in mycol.find_one({'word':word})['postingList']:
+				tf = calculate_tf(posting['occurrences'])
+				mycol.update_one({"word": mycol.find_one({'word':word})['word'], "postingList.docID": posting['docID']}, {'$set':{'postingList.$.tf_idf':tf}})'''
+		else:
+			continue
 
 def build_postings(key):
 	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
@@ -86,34 +87,6 @@ def insert_index(key):
 		else:
 			mycol.update_one(myQuery, {'$addToSet': {'postingList': postings[word]['postingList']}})		
 	myclient.close()
-
-def build_index(key):
-	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-	mydb = myclient["invertedIndexTest"]
-	mycol = mydb["words"]
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + key
-	print('GOING THROUGH FILE ' + key)
-	with open(file_path, 'r' , encoding='utf8') as file:
-		html_page = BeautifulSoup(file, features='lxml')
-	extracted_words = html_page.get_text()
-	tagged = preprocess_tokens(extracted_words)
-	for token in tagged:
-		docExistsFlag = True
-		word = WordNetLemmatizer().lemmatize(token).lower()
-		myQuery = mycol.find_one({"word": word})
-		if not myQuery:
-			document = {"word": word, "postingList": [{"docID": key, "occurrences": 1}]}
-			mycol.insert_one(document)
-		else:
-			docExistsFlag = False
-			for docID in [d["docID"] for d in myQuery["postingList"]]:
-				if docID == key:
-					mycol.update_one({"word": word, "postingList.docID": docID},{'$inc': {'postingList.$.occurrences':1}})
-					docExistsFlag = True
-					break
-			if not docExistsFlag:
-				mycol.update_one(myQuery, {'$addToSet' : {'postingList' : {'docID': key, 'occurrences':1}}})
-	myclient.close()
 	
 def multi_build():
 	with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
@@ -137,8 +110,8 @@ def query(word):
 
 	print("Num URLS: " + str(len(myQuery["postingList"])))
 	
-def union(list1, list2):
-	return list(set(list1) | set(list2))
+def w_intersection(list1, list2):
+	return list(set(list1).intersection(set(list2)))
 
 def query_dict(user_query):
 	q_dict = dict()
@@ -149,7 +122,7 @@ def query_dict(user_query):
 			q_dict[w] += 1
 	return q_dict
 
-def normalize(num_list):
+def normalize_q(num_list):
 	result = []
 	sum = 0
 	for num in num_list:
@@ -159,39 +132,39 @@ def normalize(num_list):
 		result.append(num/doc_length)
 	return result
 
+def normalize_d(num_list1,num_list2):
+	result = []
+	sum = 0
+	for num in num_list1:
+		sum += math.pow(num,2)
+	doc_length = math.sqrt(sum)
+	for num in num_list2:
+		result.append(num/doc_length)
+	return result
+
 def calculate_cosine(q,d):
 	result = 0
 	for i in range(0,len(q)):
 		result += q[i]*d[i]
 	return result
 
-def tfidf_document_list(word_union):
+def get_tfidf_document(user_query):
+	d_dict = defaultdict(dict)
 	mycol = get_database()
-	d_list = []
-	for word in word_union:
-		query = mycol.find_one({'word':word})
-		if not query:
-			d_list.append(0)
-		else:
-			tf_idf = 0
-			for i in query['postingList']:
-				tf_idf += i['tf_idf']
-			d_list.append(tf_idf)
-	return d_list 
+	for w in user_query:
+		query = mycol.find_one({'word':w})
+		for posting in query['postingList']:
+			d_dict[w][posting['docID']] = posting['tf_idf']
+	return d_dict
 
-def tfidf_query_list(word_union,query_dict):
+def tfidf_query_list(word_intersection,query_dict):
 	q_list = []
-	for word in word_union:
-		if word not in query_dict.keys():
-			q_list.append(0)
-		else:
-			mycol = get_database()
-			query = mycol.find_one({'word':word})
-			if query != None:
-				tf_idf = calculate_tf(query_dict[word]) * calculate_idf(query)
-				q_list.append(tf_idf)
-			else:
-				q_list.append(0)
+	mycol = get_database()
+	for word in word_intersection:
+		mycol = get_database()
+		query = mycol.find_one({'word':word})
+		tf_idf = calculate_tf(query_dict[word]) * calculate_idf(query)
+		q_list.append(tf_idf)
 	return q_list
 
 def get_doc_ids(user_query):
@@ -223,30 +196,51 @@ def get_tag_scores(query, docID):
 	score = 0
 	for w in lemmatized:
 		if any(w for w in (meta_tags,title,headers,bolded)):
-			score+=0.1
+			score+=0.01
 	return score
-
 
 def doc_id(scores):
 	return scores['score']
+
+def tfidf_document_list(tfidf_dict,docid):
+	result_list = []
+	for word,value in tfidf_dict.items():
+		docidfound = False
+		for v in value.keys():
+			if v == docid:
+				docidfound = True
+				result_list.append(value[v])
+		if not docidfound:
+			result_list.append(0)
+	return result_list
 
 def prompt_query():
 	user_query = input("Enter query: ")
 	user_query = preprocess_tokens(user_query)
 	q_dict = query_dict(user_query)
 	docid_list = get_doc_ids(user_query)
+	calculate_tfidf_document(user_query)
+	tfidf_document_dict = get_tfidf_document(user_query)
+	q_list = tfidf_query_list(user_query,q_dict)
 	scores = []
 	for docid in docid_list:
 		text = get_document_text(docid)
-		word_union = union(user_query,text)
-		d_list = tfidf_document_list(word_union)
-		q_list = tfidf_query_list(word_union,q_dict)
+		word_intersection = w_intersection(user_query,text)
+		calculate_tfidf_document(text)
+		tfidf_document_dict1 = get_tfidf_document(text)
+		d_normalize_list = tfidf_document_list(tfidf_document_dict1,docid)	
+		tfidf_document_dict2 = get_tfidf_document(user_query)
+		d_list = tfidf_document_list(tfidf_document_dict2,docid)
 		tag_score = get_tag_scores(user_query,docid)
-		scores.append({'docID': docid, 'score':calculate_cosine(normalize(q_list),normalize(d_list))+tag_score})
+		q_normalize = normalize_q(q_list)
+		d_normalize = normalize_d(d_normalize_list,d_list)
+		scores.append({'docID': docid, 'score':calculate_cosine(q_normalize,d_normalize)+tag_score})
 	scores = sorted(scores,key=doc_id,reverse=True)
 	scores_length = len(scores)
+	if scores_length > 20:
+		scores_length = 20
 	for i in range(0,scores_length):
-		print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + scores[i]['docID'] 
+		print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + scores[i]['docID'] 
 			+ ' score: ' + str(scores[i]['score']))
 
 if __name__ == '__main__':
