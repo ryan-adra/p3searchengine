@@ -13,6 +13,10 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from math import log
 STOPWORDS = set(stopwords.words('english'))
+myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+mydb = myclient["invertedIndex"]
+mycol = mydb["words"]
+inverted_index_dict = {}
 
 def isvalid(s):
     return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
@@ -20,14 +24,7 @@ def isvalid(s):
 def preprocess_tokens(extracted_words):
 	tokenize_words = word_tokenize(extracted_words)
 	text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
-	#tagged = nltk.pos_tag(text)
 	return text
-
-def get_database():
-	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-	mydb = myclient["invertedIndex"]
-	mycol = mydb["words"]
-	return mycol
 
 def calculate_tf(num):
 	return 1+log(num)
@@ -35,27 +32,8 @@ def calculate_tf(num):
 def calculate_idf(posting):
 	return log(37497/len(posting['postingList']))
 
-def calculate(posting_dict):
-	tf = calculate_tf(posting_dict['doc']['occurrences'])
-	mycol = get_database()
-	mycol.update_one({"word": posting_dict['word'], "postingList.docID": posting_dict['doc']['docID']}, {'$set':{'postingList.$.tf_idf':tf}})
-
-def calculate_tfidf_document(query):
-	mycol = get_database()
-	for word in query:
-		if 'tf_idf' not in mycol.find_one({'word':word})['postingList'][0].keys():
-			alist = [{'word':word,'doc':d} for d in mycol.find_one({'word':word})['postingList']]
-			with mp.Pool() as pool:
-				pool.map(calculate,alist)
-				pool.close()
-			'''for posting in mycol.find_one({'word':word})['postingList']:
-				tf = calculate_tf(posting['occurrences'])
-				mycol.update_one({"word": mycol.find_one({'word':word})['word'], "postingList.docID": posting['docID']}, {'$set':{'postingList.$.tf_idf':tf}})'''
-		else:
-			continue
-
 def build_postings(key):
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
+	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + key
 	with open(file_path, 'r', encoding='utf-8') as file:
 		html_page = BeautifulSoup(file, features='lxml')
 	extracted_words = html_page.get_text()
@@ -65,50 +43,29 @@ def build_postings(key):
 		docExistsFlag = True
 		word = WordNetLemmatizer().lemmatize(token).lower()
 		if word not in postings:
-			postings[word] = {'postingList' : {'docID': key, 'occurrences': 1, 'term_frequency': 0, 'tf_idf':0 }}
+			postings[word] = {'docID': key, 'occurrences': 1, 'tf_idf': 0}
 		elif word in postings:
-			postings[word]['postingList']['occurrences'] +=1
+			postings[word]['occurrences'] +=1
 	for word,value in postings.items():
-		tf = calculate_tf(extracted_words,value['postingList']['occurrences'])
-		postings[word]['postingList']['term_frequency'] = tf
+		postings[word]['tf_idf'] = calculate_tf(value['occurrences'])
 	return postings
 
-def insert_index(key):
-	print('GOING THROUGH FILE ' + key)
-	postings = build_postings(key)
+def create_index():
+	inverted_index_dict = dict()
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
 	mydb = myclient["invertedIndex"]
 	mycol = mydb["words"]
-	for word in postings:
-		myQuery = mycol.find_one({"word": word})
-		if not myQuery:
-			document = {"word": word, "postingList": [postings[word]['postingList']]}
-			mycol.insert_one(document)
-		else:
-			mycol.update_one(myQuery, {'$addToSet': {'postingList': postings[word]['postingList']}})		
-	myclient.close()
-	
-def multi_build():
 	with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
 		htmlPageData = json.load(f)
-	with mp.Pool() as pool:
-		pool.map(insert_index,htmlPageData.keys())
-		pool.close()
-
-def query(word):
-	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-	mydb = myclient["invertedIndex"]
-	mycol = mydb["words"]
-
-	with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
-		htmlPageData = json.load(f)
-
-	myQuery = mycol.find_one({"word": word.lower()})
-
-	for docID in (d["docID"] for d in myQuery["postingList"]):
-		print(htmlPageData[docID])
-
-	print("Num URLS: " + str(len(myQuery["postingList"])))
+	for key in htmlPageData:
+		postings = build_postings(key)
+		for word in postings.keys():
+			if word not in inverted_index_dict.keys():
+				inverted_index_dict[word] = {'postingList': [postings[word]]}
+			else:
+				inverted_index_dict[word]['postingList'].append(postings[word])
+	for word in inverted_index_dict.keys():
+		 mycol.insert_one({'word': word, 'metadata': inverted_index_dict[word]})
 	
 def w_intersection(list1, list2):
 	return list(set(list1).intersection(set(list2)))
@@ -244,8 +201,7 @@ def prompt_query():
 			+ ' score: ' + str(scores[i]['score']))
 
 if __name__ == '__main__':
-	#multi_build()
-	prompt_query()
+	create_index()
 
 	
 
