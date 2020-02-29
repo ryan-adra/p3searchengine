@@ -35,11 +35,11 @@ def get_doc_ids(user_query):
     count+=1
     word = mycol.find_one({'word':w})
     if word != None:
-      for d in word['postingList']:
+      for d in word['metadata']['postingList']:
         if d['docID'] not in result.keys():
-          result[d['docID']] = {w}
+          result[d['docID']] = {w: d['tf_idf']}
         else:
-          result[d['docID']].add(w)
+          result[d['docID']][w] = d['tf_idf']
   filtered_results = dict()
   if(count>1):
     for k in result.keys():
@@ -59,9 +59,8 @@ def add_tfidf(doc):
 def prompt_query():
   user_query = input("Enter query: ")
   user_query = preprocess_tokens(user_query)
-  
+  print(get_doc_ids(user_query))
 
 if __name__ == "__main__":
-  add_tfidf(mycol.find_one({'word': 'bren'}))
-  add_tfidf(mycol.find_one({'word': 'school'}))
+  prompt_query()
   myclient.close()
