@@ -25,12 +25,6 @@ def preprocess_tokens(extracted_words):
   text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
   return text
 
-def calculate_tf(num):
-  return 1+log(num)
-
-def calculate_idf(posting):
-  return log(37497/len(posting['postingList']))
-
 def get_doc_ids(user_query):
   result = []
   myclient = pymongo.MongoClient("mongodb://localhost:27017/")
