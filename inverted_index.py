@@ -29,25 +29,63 @@ def preprocess_tokens(extracted_words):
 def calculate_tf(num):
 	return 1+log(num)
 
-def calculate_idf(posting):
-	return log(37497/len(posting['postingList']))
+def calculate_idf(num):
+	return log(37497/num)
+
+def strip_raw_html_text(key):
+	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
+	with open(file_path, 'r', encoding='utf8') as file_html:
+		html_file = BeautifulSoup(file_html, features='lxml')
+
+	for script in html_file(["script","style"]):
+		script.decompose()
+
+	html_text = html_file.get_text()
+	lines = (line.strip() for line in html_text.splitlines())
+	separate_lines = (phrase.strip() for line in lines for phrase in line.split(" "))
+	html_text = ' '.join(chunk for chunk in separate_lines if chunk)
+	return html_text
+
+def get_important_words(key):
+	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
+	with open(file_path, 'r', encoding='utf8') as file_html:
+		html_page = BeautifulSoup(file_html, features='lxml')
+	meta_tags = [item.get_text() for item in html_page.findAll('meta')]
+	title = [item.get_text() for item in html_page.findAll('title')]
+	headers = [item.get_text() for item in html_page.findAll('h')]
+	bold_tags = [item.get_text() for item in html_page.findAll('b')]
+	meta_tags = [WordNetLemmatizer().lemmatize(token).lower() for i in meta_tags for token in preprocess_tokens(i)]
+	title = [WordNetLemmatizer().lemmatize(token).lower() for i in title for token in preprocess_tokens(i)]
+	headers = [WordNetLemmatizer().lemmatize(token).lower() for i in headers for token in preprocess_tokens(i)]
+	bold_tags = [WordNetLemmatizer().lemmatize(token).lower() for i in bold_tags for token in preprocess_tokens(i)]
+	return [meta_tags,title,headers,bold_tags]
 
 def build_postings(key):
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + key
-	with open(file_path, 'r', encoding='utf-8') as file:
-		html_page = BeautifulSoup(file, features='lxml')
-	extracted_words = html_page.get_text()
-	text = preprocess_tokens(extracted_words)
+	print('GOING THROUGH DOCID ' + key)
+	extracted_html_text = strip_raw_html_text(key)
+	text = preprocess_tokens(extracted_html_text)
 	postings = dict()
 	for token in text:
-		docExistsFlag = True
 		word = WordNetLemmatizer().lemmatize(token).lower()
 		if word not in postings:
-			postings[word] = {'docID': key, 'occurrences': 1, 'tf_idf': 0}
+			postings[word] = {'docID': key, 'occurrences': 1, 'tf_idf': 0, 'tag_score': 0}
 		elif word in postings:
 			postings[word]['occurrences'] +=1
+
+	doc_length = 0
 	for word,value in postings.items():
 		postings[word]['tf_idf'] = calculate_tf(value['occurrences'])
+		doc_length += math.pow(postings[word]['tf_idf'],2)
+	doc_length = math.sqrt(doc_length)
+	for word in postings.keys():
+		postings[word]['doc_length'] = doc_length
+
+	important_words_list = get_important_words(key)
+	for j in important_words_list:
+		for i in j:
+			if i in postings:
+				postings[i]['tag_score'] += 0.01
+
 	return postings
 
 def create_index():
@@ -55,150 +93,18 @@ def create_index():
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
 	mydb = myclient["invertedIndex"]
 	mycol = mydb["words"]
+
 	with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
 		htmlPageData = json.load(f)
 	for key in htmlPageData:
 		postings = build_postings(key)
 		for word in postings.keys():
 			if word not in inverted_index_dict.keys():
-				inverted_index_dict[word] = {'postingList': [postings[word]]}
+				inverted_index_dict[word] = [postings[word]]
 			else:
-				inverted_index_dict[word]['postingList'].append(postings[word])
+				inverted_index_dict[word].append(postings[word])
 	for word in inverted_index_dict.keys():
-		 mycol.insert_one({'word': word, 'metadata': inverted_index_dict[word]})
-	
-def w_intersection(list1, list2):
-	return list(set(list1).intersection(set(list2)))
-
-def query_dict(user_query):
-	q_dict = dict()
-	for w in user_query:
-		if w not in q_dict:
-			q_dict[w] = 1
-		else:
-			q_dict[w] += 1
-	return q_dict
-
-def normalize_q(num_list):
-	result = []
-	sum = 0
-	for num in num_list:
-		sum += math.pow(num,2)
-	doc_length = math.sqrt(sum)
-	for num in num_list:
-		result.append(num/doc_length)
-	return result
-
-def normalize_d(num_list1,num_list2):
-	result = []
-	sum = 0
-	for num in num_list1:
-		sum += math.pow(num,2)
-	doc_length = math.sqrt(sum)
-	for num in num_list2:
-		result.append(num/doc_length)
-	return result
-
-def calculate_cosine(q,d):
-	result = 0
-	for i in range(0,len(q)):
-		result += q[i]*d[i]
-	return result
-
-def get_tfidf_document(user_query):
-	d_dict = defaultdict(dict)
-	mycol = get_database()
-	for w in user_query:
-		query = mycol.find_one({'word':w})
-		for posting in query['postingList']:
-			d_dict[w][posting['docID']] = posting['tf_idf']
-	return d_dict
-
-def tfidf_query_list(word_intersection,query_dict):
-	q_list = []
-	mycol = get_database()
-	for word in word_intersection:
-		mycol = get_database()
-		query = mycol.find_one({'word':word})
-		tf_idf = calculate_tf(query_dict[word]) * calculate_idf(query)
-		q_list.append(tf_idf)
-	return q_list
-
-def get_doc_ids(user_query):
-	result = []
-	mycol = get_database()
-	for w in user_query:
-		word = mycol.find_one({'word':w})
-		if word != None:
-			result = [i['docID'] for i in word['postingList']]
-	return list(set(result))
-
-def get_document_text(docID):
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + docID
-	with open(file_path, 'r' , encoding='utf8') as file:
-		html_page = BeautifulSoup(file, features='lxml')
-	extracted_words = html_page.get_text().lower()
-	extracted_words = preprocess_tokens(extracted_words)
-	return extracted_words
-
-def get_tag_scores(query, docID):
-	lemmatized = [WordNetLemmatizer().lemmatize(token).lower() for token in query]
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_CLEAN/' + docID
-	with open(file_path, 'r' , encoding='utf8') as file:
-		html_page = BeautifulSoup(file, features='lxml')
-	meta_tags = html_page.findAll('meta')
-	title = html_page.findAll('title')
-	headers = html_page.findAll('h')
-	bolded = html_page.findAll('b')
-	score = 0
-	for w in lemmatized:
-		if any(w for w in (meta_tags,title,headers,bolded)):
-			score+=0.01
-	return score
-
-def doc_id(scores):
-	return scores['score']
-
-def tfidf_document_list(tfidf_dict,docid):
-	result_list = []
-	for word,value in tfidf_dict.items():
-		docidfound = False
-		for v in value.keys():
-			if v == docid:
-				docidfound = True
-				result_list.append(value[v])
-		if not docidfound:
-			result_list.append(0)
-	return result_list
-
-def prompt_query():
-	user_query = input("Enter query: ")
-	user_query = preprocess_tokens(user_query)
-	q_dict = query_dict(user_query)
-	docid_list = get_doc_ids(user_query)
-	calculate_tfidf_document(user_query)
-	tfidf_document_dict = get_tfidf_document(user_query)
-	q_list = tfidf_query_list(user_query,q_dict)
-	scores = []
-	for docid in docid_list:
-		text = get_document_text(docid)
-		word_intersection = w_intersection(user_query,text)
-		calculate_tfidf_document(text)
-		tfidf_document_dict1 = get_tfidf_document(text)
-		d_normalize_list = tfidf_document_list(tfidf_document_dict1,docid)	
-		tfidf_document_dict2 = get_tfidf_document(user_query)
-		d_list = tfidf_document_list(tfidf_document_dict2,docid)
-		tag_score = get_tag_scores(user_query,docid)
-		q_normalize = normalize_q(q_list)
-		d_normalize = normalize_d(d_normalize_list,d_list)
-		scores.append({'docID': docid, 'score':calculate_cosine(q_normalize,d_normalize)+tag_score})
-	scores = sorted(scores,key=doc_id,reverse=True)
-	scores_length = len(scores)
-	if scores_length > 20:
-		scores_length = 20
-	for i in range(0,scores_length):
-		print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + scores[i]['docID'] 
-			+ ' score: ' + str(scores[i]['score']))
+		mycol.insert_one({'word': word, 'metadata': inverted_index_dict[word], 'idf': calculate_idf(len(inverted_index_dict[word]))})
 
 if __name__ == '__main__':
 	create_index()
