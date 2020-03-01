@@ -21,9 +21,9 @@ def isvalid(s):
   return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
 
 def preprocess_tokens(extracted_words):
-	tokenize_words = word_tokenize(extracted_words)
-	text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
-	return text
+  tokenize_words = word_tokenize(extracted_words)
+  text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
+  return text
 
 def calculate_tf(num):
   return 1+log(num)
@@ -141,6 +141,8 @@ if __name__ == "__main__":
     print(htmlPageData[scores[i]['docID']])
     print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + scores[i]['docID'] 
       + ' score: ' + str(scores[i]['score']))
+
+
 
 
 
