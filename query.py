@@ -1,20 +1,12 @@
 import json
 import nltk
 import pymongo
-import re
 import math
-import multiprocessing as mp
 import inverted_index
-from collections import defaultdict
 from bs4 import BeautifulSoup
-from collections import defaultdict
 from nltk.corpus import wordnet
-from nltk.tokenize import RegexpTokenizer, word_tokenize
+from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from math import log
-import numpy
-from sklearn.feature_extraction.text import TfidfVectorizer
 STOPWORDS = set(stopwords.words('english'))
 
 def isvalid(s):
@@ -84,7 +76,7 @@ def tfidf_query_list(word_intersection,query_dict):
   mycol = mydb["words"]
   for word in word_intersection:
     query = mycol.find_one({'word':word})
-    tf_idf = calculate_tf(query_dict[word]) * query['idf']
+    tf_idf = inverted_index.calculate_tf(query_dict[word]) * query['idf']
     q_list.append(tf_idf)
   return q_list
 
@@ -98,9 +90,6 @@ def get_doc_length(user_query,docid):
       if item['docID'] == docid:
         return item['doc_length']
 
-def doc_id(scores):
-  return scores['score']
-
 def find_cosine_score(user_query,docid,q_list,q_list_length):
   print('GOING THROUGH DOCID ' + docid)
   d_list_length = get_doc_length(user_query,docid)
@@ -109,7 +98,7 @@ def find_cosine_score(user_query,docid,q_list,q_list_length):
   d_normalize = normalize(d_list,d_list_length)
   return {'docID': docid, 'score':calculate_cosine(q_normalize,d_normalize)}
 
-if __name__ == "__main__":
+def prompt_query():
   user_query = input("Enter query: ")
   user_query = preprocess_tokens(user_query)
   q_dict = query_dict(user_query)
@@ -124,8 +113,9 @@ if __name__ == "__main__":
   for docid in docid_list:
     s_dict = find_cosine_score(user_query,docid,q_list,q_list_length)
     scores.append(s_dict)
+  return sorted(scores,key=lambda scores: scores['score'],reverse=True)
 
-  scores = sorted(scores,key=doc_id,reverse=True)
+def print_top_20_scores(scores):
   scores_length = len(scores)
   if scores_length > 20:
     scores_length = 20
@@ -135,6 +125,11 @@ if __name__ == "__main__":
     print(htmlPageData[scores[i]['docID']])
     print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + scores[i]['docID'] 
       + ' score: ' + str(scores[i]['score']))
+
+if __name__ == "__main__":
+  print_top_20_scores(prompt_query())
+
+  
 
 
 
