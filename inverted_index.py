@@ -13,10 +13,8 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from math import log
 STOPWORDS = set(stopwords.words('english'))
-myclient = pymongo.MongoClient("mongodb://localhost:27017/")
-mydb = myclient["invertedIndex"]
-mycol = mydb["words"]
-inverted_index_dict = {}
+inverted_index_dict = dict()
+PATH = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/'
 
 def isvalid(s):
     return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
@@ -33,23 +31,23 @@ def calculate_idf(num):
 	return log(37497/num)
 
 def strip_raw_html_text(key):
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
+	file_path = PATH + key
 	with open(file_path, 'r', encoding='utf8') as file_html:
-		html_file = BeautifulSoup(file_html, features='lxml')
+		html_file = BeautifulSoup(file_html,'lxml')
 
 	for script in html_file(["script","style"]):
 		script.decompose()
 
-	html_text = html_file.get_text()
+	html_text = html_file.get_text(separator=' ')
 	lines = (line.strip() for line in html_text.splitlines())
 	separate_lines = (phrase.strip() for line in lines for phrase in line.split(" "))
 	html_text = ' '.join(chunk for chunk in separate_lines if chunk)
 	return html_text
 
 def get_important_words(key):
-	file_path = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + key
+	file_path = PATH + key
 	with open(file_path, 'r', encoding='utf8') as file_html:
-		html_page = BeautifulSoup(file_html, features='lxml')
+		html_page = BeautifulSoup(file_html, "lxml")
 	meta_tags = [item.get_text() for item in html_page.findAll('meta')]
 	title = [item.get_text() for item in html_page.findAll('title')]
 	headers = [item.get_text() for item in html_page.findAll('h')]
@@ -89,12 +87,11 @@ def build_postings(key):
 	return postings
 
 def create_index():
-	inverted_index_dict = dict()
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
 	mydb = myclient["invertedIndex"]
 	mycol = mydb["words"]
 
-	with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
+	with open(PATH + "bookkeeping.json") as f:
 		htmlPageData = json.load(f)
 	for key in htmlPageData:
 		postings = build_postings(key)
@@ -103,8 +100,19 @@ def create_index():
 				inverted_index_dict[word] = [postings[word]]
 			else:
 				inverted_index_dict[word].append(postings[word])
-	for word in inverted_index_dict.keys():
-		mycol.insert_one({'word': word, 'metadata': inverted_index_dict[word], 'idf': calculate_idf(len(inverted_index_dict[word]))})
+	with mp.Pool() as pool:
+		pool.map(insert_words_into_db,inverted_index_dict.keys())
+		
+	myclient.close()
+
+def insert_words_into_db(word):
+	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+	mydb = myclient["invertedIndex"]
+	mycol = mydb["words"]
+	mycol.insert_one({'word': word, 'metadata': inverted_index_dict[word], 'idf': calculate_idf(len(inverted_index_dict[word]))})
+	myclient.close()
+
+
 
 if __name__ == '__main__':
 	create_index()
