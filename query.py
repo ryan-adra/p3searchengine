@@ -8,14 +8,7 @@ from nltk.corpus import wordnet
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 STOPWORDS = set(stopwords.words('english'))
-
-def isvalid(s):
-  return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
-
-def preprocess_tokens(extracted_words):
-  tokenize_words = word_tokenize(extracted_words)
-  text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
-  return text
+PATH = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/'
 
 def get_doc_ids(user_query):
   result = []
@@ -69,12 +62,12 @@ def get_tfidf_document(text,docid):
       result_list.append(0)
   return result_list
 
-def tfidf_query_list(word_intersection,query_dict):
+def tfidf_query_list(words,query_dict):
   q_list = []
   myclient = pymongo.MongoClient("mongodb://localhost:27017/")
   mydb = myclient["invertedIndex"]
   mycol = mydb["words"]
-  for word in word_intersection:
+  for word in words:
     query = mycol.find_one({'word':word})
     tf_idf = inverted_index.calculate_tf(query_dict[word]) * query['idf']
     q_list.append(tf_idf)
@@ -100,7 +93,7 @@ def find_cosine_score(user_query,docid,q_list,q_list_length):
 
 def prompt_query():
   user_query = input("Enter query: ")
-  user_query = preprocess_tokens(user_query)
+  user_query = inverted_index.preprocess_tokens(user_query)
   q_dict = query_dict(user_query)
   docid_list = get_doc_ids(user_query)
   q_list = tfidf_query_list(user_query,q_dict)
@@ -119,11 +112,11 @@ def print_top_20_scores(scores):
   scores_length = len(scores)
   if scores_length > 20:
     scores_length = 20
-  with open("/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/bookkeeping.json") as f:
+  with open(PATH + "bookkeeping.json") as f:
     htmlPageData = json.load(f)
   for i in range(0,scores_length):
     print(htmlPageData[scores[i]['docID']])
-    print('/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/' + scores[i]['docID'] 
+    print(PATH + scores[i]['docID'] 
       + ' score: ' + str(scores[i]['score']))
 
 if __name__ == "__main__":
