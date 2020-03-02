@@ -8,22 +8,28 @@ from nltk.corpus import wordnet
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 STOPWORDS = set(stopwords.words('english'))
-PATH = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/'
+PATH = 'C:/Users/nickj/Desktop/CS 121/webpages_clean/'
 
 def get_doc_ids(user_query):
-  result = []
   myclient = pymongo.MongoClient("mongodb://localhost:27017/")
   mydb = myclient["invertedIndex"]
   mycol = mydb["words"]
+  result = dict()
   for w in user_query:
     word = mycol.find_one({'word':w})
     if word != None:
-      tf_dict = {info['docID']: info['tf_idf']+info['tag_score'] for info in word['metadata']}
-      top_docs_list = sorted(tf_dict,key=tf_dict.__getitem__,reverse=True)
-      for num in range(0,50):
-        if top_docs_list[num] not in result:
-          result.append(top_docs_list[num])
-  return result
+      for d in word['metadata']:
+        score = d['tf_idf'] + d['tag_score']
+        if d['docID'] not in result.keys():
+          result[d['docID']] = {w: {'score': score, 'doc_length': d['doc_length']}}
+        else:
+           result[d['docID']].update({w: {'score': score, 'doc_length': d['doc_length']}})
+  if(len(user_query)>1):
+    result = {k:v for k,v in result.items() if len(v.keys()) > 1}
+
+  sorted_results = sorted(result, key=lambda x: sum([v['score'] for k,v in result[x].items()]),reverse=True)
+
+  return sorted_results[0:100]
 
 def query_dict(user_query):
   q_dict = dict()
@@ -120,6 +126,7 @@ def print_top_20_scores(scores):
       + ' score: ' + str(scores[i]['score']))
 
 if __name__ == "__main__":
+  #print(get_doc_ids(['bren', 'school']))
   print_top_20_scores(prompt_query())
 
   
