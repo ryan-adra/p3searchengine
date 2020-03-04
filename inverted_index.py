@@ -16,20 +16,27 @@ STOPWORDS = set(stopwords.words('english'))
 inverted_index_dict = dict()
 PATH = '/Users/filoprince/Documents/cs121_project3/WEBPAGES_RAW/'
 
+#checks string to see if it is valid (ascii + alphanumeric)
 def isvalid(s):
     return all(ord(c) < 128 and ord(c) not in range(48, 58) for c in s)
 
+#tokenizes words using word tokenize, removes stopwords, invalid words, and single char words
 def preprocess_tokens(extracted_words):
 	tokenize_words = word_tokenize(extracted_words)
 	text = [word for word in tokenize_words if word.lower() not in STOPWORDS and isvalid(word) and len(word) > 1]
 	return text
 
+#calculates the term frequency based on its occurrences in the doc
 def calculate_tf(num):
 	return 1+log(num)
 
+#calculates the inverse document frequency based on the number of docs the words 
+# is in relative to the document number
 def calculate_idf(num):
 	return log(37497/num)
 
+#Uses bs4 library to get visible text and remove markup that includes
+#style and script
 def strip_raw_html_text(key):
 	file_path = PATH + key
 	with open(file_path, 'r', encoding='utf8') as file_html:
@@ -44,6 +51,8 @@ def strip_raw_html_text(key):
 	html_text = ' '.join(chunk for chunk in separate_lines if chunk)
 	return html_text
 
+#Uses the beautiful soup library to get lists of all important words
+# in each document
 def get_important_words(key):
 	file_path = PATH + key
 	with open(file_path, 'r', encoding='utf8') as file_html:
@@ -58,6 +67,10 @@ def get_important_words(key):
 	bold_tags = [WordNetLemmatizer().lemmatize(token).lower() for i in bold_tags for token in preprocess_tokens(i)]
 	return [meta_tags,title,headers,bold_tags]
 
+
+#Builds the posting for each word in the document,
+#Storing its occurrences, tf_idf, document_length, and additional tag score
+#based on the number of times it appears in an important tag
 def build_postings(key):
 	print('GOING THROUGH DOCID ' + key)
 	extracted_html_text = strip_raw_html_text(key)
@@ -86,6 +99,7 @@ def build_postings(key):
 
 	return postings
 
+#Stores each of the postings created into an inverted_index dictionary
 def create_index():
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
 	mydb = myclient["invertedIndex"]
@@ -105,6 +119,7 @@ def create_index():
 		
 	myclient.close()
 
+#Inserts each word in the inverted index into mongodb
 def insert_words_into_db(word):
 	myclient = pymongo.MongoClient("mongodb://localhost:27017/")
 	mydb = myclient["invertedIndex"]
@@ -116,8 +131,3 @@ def insert_words_into_db(word):
 
 if __name__ == '__main__':
 	create_index()
-
-	
-
-	
-	
